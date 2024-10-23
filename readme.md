@@ -1,3 +1,12 @@
+Single-thread SPH rewrite. 
+
+TODO:
+- [ ] Get some code up and running; generic SPH repulsion and time evolution of images.
+    - [ ] Get random particle positioning working in arbitrary dimension
+    - [ ] Check that drawing output works
+    - [ ] Time evolution stepping
+- [ ] Implement annealing of particle positions for initial conditions
+- [ ] Poisson disk sampling of particles
 
 This started as being focused on SPH, but instead let's see how far we can push CPU-based particle-particle interactions. 
 If I'm running large code finding nearest neighbors, why not also investigate things like sphere packings? 

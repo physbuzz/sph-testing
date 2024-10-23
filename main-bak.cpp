@@ -2,14 +2,101 @@
 #include <iostream>
 #include <iomanip>
 #include <vector>
-
-
 #include "easytime.h"
 #include "ImageUtil.h"
 #include "phystructs.h"
 
 #define EPS 0.000001
 
+enum BoundaryType{
+    CLAMP,
+    PERIODIC,
+    SPRING
+};
+enum EOSType{
+    LINEAR,
+    IDEALGAS,
+    FLUID
+};
+
+template <typename Float>
+class DensePGrid {
+    std::vector<Particle<Float> > p;
+    std::vector<std::vector<uint> > idarr;
+public:
+
+    Float domainW;
+    Float domainH;
+    uint numCellsX;
+    uint numCellsY;
+
+    //each particle is radius pr
+    //In SPH terms, I take h=2*pr. 
+    Float pr; 
+    Float pm; //particle mass
+
+    Float pressureConst; //constant in p(rho).
+    Float totalEnergy;
+
+
+
+    inline Float eosLinear(Float arg);
+    inline Float eosIdealGas(Float arg);
+    inline Float intEnergyIdealGas(Float arg);
+    inline Float eosFluid(Float arg);
+    inline bool valididQ(int x,int y);
+
+    void recalculateIDs(); 
+    void stepPositionsAndVelocities(Float dt);
+    void calculatePressures();
+    Float pressureAtPoint(Float x,Float y);
+    void calculateForces();
+
+    SPHSim &operator=(const SPHSim&) = delete;
+    SPHSim(const SPHSim&) = delete;
+    SPHSim();
+    Float timestep(Float dt);
+};
+
+template <typename Float>
+class SPHSim {
+
+public:
+    std::vector<Particle<Float> > p;
+    std::vector<std::vector<uint> > idarr;
+
+    Float domainW;
+    Float domainH;
+    uint numCellsX;
+    uint numCellsY;
+
+    //each particle is radius pr
+    //In SPH terms, I take h=2*pr. 
+    Float pr; 
+    Float pm; //particle mass
+
+    Float pressureConst; //constant in p(rho).
+    Float totalEnergy;
+
+
+
+    inline Float eosLinear(Float arg);
+    inline Float eosIdealGas(Float arg);
+    inline Float intEnergyIdealGas(Float arg);
+    inline Float eosFluid(Float arg);
+    inline bool valididQ(int x,int y);
+
+    void recalculateIDs(); 
+    void stepPositionsAndVelocities(Float dt);
+    void calculatePressures();
+    Float pressureAtPoint(Float x,Float y);
+    void calculateForces();
+
+    SPHSim &operator=(const SPHSim&) = delete;
+    SPHSim(const SPHSim&) = delete;
+    SPHSim();
+    Float timestep(Float dt);
+};
 
 int main() {
     SPHSim<float> sph;

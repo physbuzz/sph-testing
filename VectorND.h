@@ -1,10 +1,11 @@
 #ifndef VECTORND_H
-#define VECTORNH_H
+#define VECTORND_H
 #include <iostream>
 #include <math.h>
 #include <array>
 
 /*
+template<typename Float,int DIM>
 class VectorND {
 public:
     std::array<Float,DIM> x;
@@ -28,6 +29,10 @@ public:
     void normalize();
     //return normalized version of the vector.
     VectorND normalized() const;
+    //return the product of all elements of the vector
+    Float product() const;
+    //clamp each component of the vector to between mmin and mmax, inclusive.
+    void clampCube(VectorND<Float,DIM> mmin,VectorND<Float,DIM> mmax);
 };
 
 template<typename Float,int DIM>
@@ -44,18 +49,31 @@ inline VectorND<Float,DIM> cerp(Float t,const VectorND<Float,DIM>& vec0,const Ve
 
 template<typename Float,int DIM>
 class VectorND {
-    static_assert(0<=DIM);
+    static_assert(0<DIM,"VectorND DIM must be positive");
 public:
     std::array<Float,DIM> x;
     VectorND() : x{} {}
+    VectorND(Float arg) : x{} {
+        for(int i=0;i<DIM;i++){
+            x[i]=arg;
+        }
+    }
     VectorND(std::array<Float,DIM> y) : x(y) {}
 
     Float& operator[](size_t arg){
         return x[arg];
     }
+    const Float& operator[](size_t arg) const{
+        return x[arg];
+    }
 
-    //vector addition and subtraction
-    VectorND operator+(const VectorND& b) const {
+    bool operator==(const VectorND& b) const {
+        bool ret=true;
+        for(int i=0;i<DIM;i++){
+            ret=ret&&(x[i]==b[i]);
+        }
+        return ret;
+    }
 
     //vector addition and subtraction
     VectorND operator+(const VectorND& b) const {
@@ -114,6 +132,15 @@ public:
         return l2;
     }
 
+    //return the length squared of the vector
+    Float dot(const VectorND& arg) const {
+        Float ret=Float(0);
+        for(int i=0;i<DIM;i++){
+            ret+=x[i]*arg.x[i];
+        }
+        return ret;
+    }
+
     //return the length of the vector
     Float length() const {
         return std::sqrt(length2());
@@ -124,9 +151,39 @@ public:
         *this/=length();
     }
 
+    Float max() const {
+        Float m=x[0];
+        for(int i=1;i<DIM;i++)
+            m=(x[i]>m)?x[i]:m;
+        return m;
+    }
+    Float min() const {
+        Float m=x[0];
+        for(int i=1;i<DIM;i++)
+            m=(x[i]<m)?x[i]:m;
+        return m;
+    }
+
     //return normalized version of the vector.
     VectorND normalized() const{
         return VectorND(*this)/length();
+    }
+
+    Float product() const {
+        Float prod=Float(1);
+        for(int i=0;i<DIM;i++){
+            prod*=x[i];
+        }
+        return prod;
+    }
+
+    void clampCube(VectorND<Float,DIM> mmin,VectorND<Float,DIM> mmax) {
+        for(int i=0;i<DIM;i++){
+            if(x[i]<mmin[i])
+                x[i]=mmin[i];
+            if(x[i]>mmax[i])
+                x[i]=mmax[i];
+        }
     }
 };
 
