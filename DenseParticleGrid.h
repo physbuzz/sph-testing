@@ -6,20 +6,24 @@
 #include <cmath>
 #include "VectorND.h"
 
-
-
-
-
 /* PType must have a VectorND<Float,DIM> pos for position, and a SizeType id
  * The idea with SizeType is that we don't want to waste 4 bytes with an 8 bit unsigned integer
  * if our array is small and we have millions of ids. But I can already see I'm being inconsistent
  * about it vs size_t vs int, so I need to revisit this.
- * */
+ *
+ * Each idarr[i] is a vector of pointers into the vector p
+ * Each p also points back into idarr, so p->id must be valid.
+ * I guess I'll write the slow functions indexToVector and vectorToIndex and then benchmark how
+ * much slower they actually are.
+ *
+ * Anyways, this will give a good jumping off point for better implementations of this. 
+ * For example, sometimes you want to iterate over all pairs of particles within a 
+ * distance r, sometimes iterate all over particles within r of another particle, and so on. */
 template<typename Float, int DIM, typename PType, typename SizeType>
 class DenseParticleGrid {
     static_assert(1<=DIM);
     std::vector<std::vector<SizeType> > idarr;
-    VectorND<int,DIM> numCells;
+    VectorND<SizeType,DIM> numCells;
     VectorND<Float,DIM> boxWidth;
     VectorND<Float,DIM> domainSize;
 
@@ -27,6 +31,30 @@ class DenseParticleGrid {
     Float maxRadius;
     bool needsRebuild;
     SizeType productOfSizes;
+
+    SizeType intvectorToIndex(VectorND<SizeType,DIM> arg){
+        SizeType ret=SizeType(0);
+        for(SizeType i=DIM-1;i>=0;i--)
+            ret=ret*numCells[i]+arg[i];
+        return ret;
+        //sanity check: for DIM=3...
+        //ret=arg[2]
+        //ret=ret*numCells[1]+arg[1]
+        //ret=ret*numCells[0]+arg[0]
+        //so ret=arg[2]*numCells[1]*numCells[0]+arg[1]*numCells[0]+arg[0]
+        // the index is k*I*J+j*I+i
+    }
+    VectorND<SizeType,DIM> indexToIntvector(SizeType index){
+        VectorND<SizeType,DIM> ret;
+        for(SizeType i=0;i<DIM;i++){
+            ret[i]=index%numCells[i];
+            index=index/numCells[i];
+        }
+        return ret;
+        //sanity check: for DIM=3...
+        //the index is ret[2]*numCells[1]*numCells[0]+ret[1]*numCells[0]+ret[0]
+        //so the two functions are inverses of each other.
+    }
 
 public:
     //This should really be a private, but if we're pushing the boundaries of the RAM 
@@ -64,7 +92,6 @@ public:
     }
     
     void rebuildAndClamp(){
-
         idarr=std::vector<std::vector<uint> >(numCellsX*numCellsY);
         for(size_t n=0;n<p.size();n++) {
             if(p[n].x<0)
@@ -81,10 +108,28 @@ public:
         }
         needsRebuild=false;
     }
-    
-
-
 };
+
+/*
+template<typename Float, int DIM, typename PType, typename SizeType>
+class DenseParticleGrid {
+    std::vector<std::vector<SizeType> > idarr;
+    VectorND<SizeType,DIM> numCells;
+    VectorND<Float,DIM> boxWidth;
+    VectorND<Float,DIM> domainSize;
+    VectorND<Float,DIM> domainMax;//iota smaller than domainSize.
+    Float maxRadius;
+    bool needsRebuild;
+    SizeType productOfSizes;
+    SizeType intvectorToIndex(VectorND<SizeType,DIM> arg);
+    VectorND<SizeType,DIM> indexToIntvector(SizeType index);
+public:
+    std::vector<PType> *p;
+    DenseParticleGrid();    
+    void setParameters(VectorND<Float,DIM> domainSize,VectorND<int,DIM> numCells, Float maxRadius);
+    void rebuildAndClamp();
+
+};*/
 
 /** GridHandler
  * takes in a bunch of Point Masses and calculates short-distance forces 
