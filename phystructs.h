@@ -8,7 +8,7 @@ struct Particle {
     VectorND<Float,DIM> pos;
     VectorND<Float,DIM> vel;
     VectorND<Float,DIM> acc;
-    Float rho;
+    Float rho, h, m;
 };
 
 #endif
