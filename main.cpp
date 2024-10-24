@@ -35,27 +35,55 @@ struct ImageParams {
 
 //Ideal gas internal energy U(rho)
 template <typename Float>
-inline Float intEnergyIdealGas(Float density) {
+static inline Float intEnergyIdealGas(Float density) {
     return std::pow(density,Float(2.0/3.0));
 }
 
 //Ideal gas EOS P(rho)=(rho**2)*U'(rho)
 template <typename Float>
-inline Float eosIdealGas(Float density) {
+static inline Float eosIdealGas(Float density) {
     return Float(2.0/3.0)*std::pow(density,Float(5.0/3.0));
 }
 
-// Smoothing kernel Wab
-template <typename Float, int DIM>
-inline Float smoothingKernelQuartic(Float h, Float r) {
-    if(DIM==2)
-        return Float(5)/(M_PI*h*h)*(1+3*r)*(1-r)*(1-r)*(1-r);
-    else
-        return 0;
+template<typename Float, int DIM>
+static inline Float smoothingKernelQuarticConstant() {
+    static_assert(0<DIM && DIM<=5, "Generic DIM not implemented");
+    if constexpr (DIM == 1){
+        return Float(5)/4;
+    } else if constexpr (DIM == 2){
+        return Float(5)/(M_PI);
+    } else if constexpr (DIM == 3){
+        return Float(105)/(16*M_PI);
+    } else if constexpr (DIM == 4){
+        return Float(28)/(M_PI*M_PI);
+    } else if constexpr (DIM == 5){
+        return Float(315)/(8*M_PI*M_PI);
+    }
+    //The full normalization constant is 
+    //2  Pi^(n/2)/Gamma[n/2]  Integrate[(1 + 3 r) (1 - r)^3  r^(n - 1), {r, 0, 1}]
+    //= (48 Pi^(n/2))/((24 n + 26 n^2 + 9 n^3 + n^4) Gamma[n/2])
+    return 0;
+}
+template <typename Float, int exponent>
+static inline Float templatePower(Float arg) {
+    static_assert(exponent>0,"Exponent must be positive");
+    if constexpr (exponent==1) {
+        return arg;
+    } else {
+        return templatePower<Float,exponent-1>(arg);
+    }
 }
 
 template <typename Float, int DIM>
-inline VectorND<Float,DIM> smoothingKernelQuarticGradient(Float h, Float r);
+static inline VectorND<Float,DIM> smoothingKernelQuartic(Float h, VectorND<Float, DIM> rvec) { 
+    float r=rvec.length();
+    r=r/h;
+    return smoothingKernelQuarticConstant<Float,DIM>()*(-12)/templatePower<Float,DIM>(h)*(1-r)*(1-r)*(rvec/r);
+}
+
+template <typename Float, int DIM>
+inline VectorND<Float,DIM> smoothingKernelQuarticGradient(Float h, Float r) { 
+}
 
 // Smoothing kernel Wab
 //template <typename Float>
