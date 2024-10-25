@@ -59,7 +59,7 @@ static inline Float smoothingKernelQuarticConstant() {
     } else if constexpr (DIM == 5){
         return Float(315)/(8*M_PI*M_PI);
     }
-    //The full normalization constant is 
+    //The full normalization constant (for h=1) is 
     //2  Pi^(n/2)/Gamma[n/2]  Integrate[(1 + 3 r) (1 - r)^3  r^(n - 1), {r, 0, 1}]
     //= (48 Pi^(n/2))/((24 n + 26 n^2 + 9 n^3 + n^4) Gamma[n/2])
     return 0;
@@ -70,8 +70,14 @@ static inline Float templatePower(Float arg) {
     if constexpr (exponent==1) {
         return arg;
     } else {
-        return templatePower<Float,exponent-1>(arg);
+        return arg*templatePower<Float,exponent-1>(arg);
     }
+}
+
+template <typename Float, int DIM>
+static inline Float smoothingKernelQuartic(Float h, Float r) { 
+    r=r/h;
+    return smoothingKernelQuarticConstant<Float,DIM>()/templatePower<Float,DIM>(h)*(1+3*r)*(1-r)*(1-r)*(1-r);
 }
 
 template <typename Float, int DIM>
@@ -111,9 +117,9 @@ public:
         for(auto p2 : pgrid.nearbyLoop(pos,maxH)){
 
             VectorND<Float,DIM> deltapos=p2->pos - pos;
-            Float d=deltapos.length()/p2->h;
-            if(d<1.0){
-                Float wab=Float(5)/(M_PI*p2->h*p2->h)*(1+3*d)*(1-d)*(1-d)*(1-d);
+            Float d=deltapos.length();
+            if(d<p2->h){
+                Float wab=smoothingKernelQuartic<Float,DIM>(p2->h,d);
                 rho+=p2->m*wab;
             }
         }
