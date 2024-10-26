@@ -60,6 +60,13 @@ public:
     }
     VectorND(std::array<Float,DIM> y) : x(y) {}
 
+    VectorND(std::initializer_list<Float> init) : x() {
+        auto it = init.begin();
+        for(int i=0; i<DIM && it != init.end(); ++i, ++it) {
+            x[i] = *it;
+        }
+    }
+
     Float& operator[](size_t arg){
         return x[arg];
     }

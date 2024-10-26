@@ -460,7 +460,7 @@ public:
         VectorND<int,DIM> tr;
     public:
         PGridNearbyRange(PGrid<Float,DIM> *pg, VectorND<Float,DIM> pos, Float r) : 
-            pg(pg), pos(pos), r(r),bl(),tr(){ 
+            pg(pg), pos(pos), r(r),bl(),tr() { 
 
             VectorND<Float,DIM> blcoord;
             VectorND<Float,DIM> trcoord;
@@ -481,7 +481,7 @@ public:
                 if(bl[k]==tr[k])
                     empty=true;
             }
-            if(empty)
+            if(empty || pg->needsRebuild)
                 bl=tr;
         }
         PGridRectIt begin() { 
@@ -492,6 +492,7 @@ public:
         }
     };
     PGridNearbyRange nearbyLoop(VectorND<Float,DIM> pos, Float r){
+
         return PGridNearbyRange(this, pos, r);
     }
 };

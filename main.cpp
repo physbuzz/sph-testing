@@ -24,14 +24,18 @@ std::string getFilename(std::string prefix, int num, int padcount, std::string s
     return prefix + pad_int(num, padcount) + suffix;
 }
 
-struct ImageParams {
-    int imgw;
-    int imgh;
-    float realsize;
-    float cx;
-    float cy;
+template<typename Float, int DIM>
+struct ImageParamsND {
+    int imgw, imgh;
+    Float realsize;
+    VectorND<Float,DIM> center;
+    VectorND<Float,DIM> xhat;
+    VectorND<Float,DIM> yhat;
+    ImageParamsND() : imgw(640), imgh(480), realsize(1), center(), xhat(), yhat() {
+        xhat[0]=1;
+        yhat[1]=1;
+    }
 };
-
 
 //Ideal gas internal energy U(rho)
 template <typename Float>
@@ -46,7 +50,7 @@ static inline Float eosIdealGas(Float density) {
 }
 
 template<typename Float, int DIM>
-static inline Float smoothingKernelQuarticConstant() {
+static inline constexpr Float smoothingKernelQuarticConstant() {
     static_assert(0<DIM && DIM<=5, "Generic DIM not implemented");
     if constexpr (DIM == 1){
         return Float(5)/4;
@@ -110,7 +114,9 @@ public:
     SPHSim(ParticleList<Float,DIM> &pl, VectorND<Float,DIM> domainSize, Float maxH) :
         pgrid(&pl.plist,domainSize,maxH),
         maxH(maxH)
-    { }
+    { 
+        pgrid.rebuildGrid(); 
+    }
 
     Float densityAtPoint(VectorND<Float,DIM> pos) {
         Float rho=0;
@@ -118,6 +124,22 @@ public:
 
             VectorND<Float,DIM> deltapos=p2->pos - pos;
             Float d=deltapos.length();
+            if(d<p2->h){
+                Float wab=smoothingKernelQuartic<Float,DIM>(p2->h,d);
+                rho+=p2->m*wab;
+            }
+        }
+        return rho;
+    }
+    //Specialized case for 1D
+    Float densityAtPoint1D(VectorND<Float,2> pos) {
+        static_assert(DIM==1, "Can only use densityAtPoint1D in one dimension");
+        Float rho=0;
+        for(auto p2 : pgrid.nearbyLoop(VectorND<Float,1>{pos[0]},maxH)){
+
+            //VectorND<Float,DIM> deltapos=p2->pos - pos;
+            //Float d=deltapos.length();
+            Float d=std::sqrt((p2->pos[0]-pos[0])*(p2->pos[0]-pos[0])+pos[1]*pos[1]);
             if(d<p2->h){
                 Float wab=smoothingKernelQuartic<Float,DIM>(p2->h,d);
                 rho+=p2->m*wab;
@@ -276,51 +298,176 @@ public:
         }
         return ret;
     }*/
-    void saveImage( ImageParams ip, std::string prefix, int fnamei, int padcount ){
-        int imw=ip.imgw;
-        int imh=ip.imgh;
+};
+template<typename Float,int DIM>
+void saveSPHImage( SPHSim<Float,DIM> &sph, ImageParamsND<Float,DIM> ip, std::string prefix, int fnamei, int padcount,
+        bool gridlines=false){
+    Image outimg(ip.imgw,ip.imgh);
+    Float aspect=Float(ip.imgh)/ip.imgw;
 
-        Image outimg(imw,imh);
-        Float realsize=ip.realsize;
-        Float cx=ip.cx;
-        Float cy=ip.cy;
-        Float aspect=Float(imh)/imw;
+    if constexpr(DIM==1) {
+        for(int a=0;a<ip.imgw;a++){
+            for(int b=0;b<ip.imgh;b++){
+                Float x=(Float(a)/ip.imgw-0.5f)*ip.realsize;
+                Float y=(Float(b)/ip.imgh-0.5f)*ip.realsize*aspect;
+                auto pos=ip.center+ip.xhat*x;
 
-        for(int a=0;a<imw;a++){
-            for(int b=0;b<imh;b++){
-                Float x=cx+(Float(a)/imw-0.5f)*realsize;
-                Float y=cy+(Float(b)/imh-0.5f)*realsize*aspect;
-                VectorND<Float,2> pos({x,y});
-
-                //Draw gridlines
-                //Float x2=cx+(Float(a+1)/imw-0.5f)*realsize;
-                //Float y2=cy+(Float(b+1)/imh-0.5f)*realsize*aspect;
-                //VectorND<Float,2> pos2({x2,y2});
-                //if(!(pgrid.positionToIntvec(pos)==pgrid.positionToIntvec(pos2))) {
-                //    outimg.put(a,b,intToRGB(255,255,255));
-                //    continue;
-                //}
-                Float rho=densityAtPoint(pos);
-                //Float rho=0;
+                /*if(gridlines){
+                    Float x2=(Float(a+1)/ip.imgw-0.5f)*ip.realsize;
+                    Float y2=(Float(b+1)/ip.imgh-0.5f)*ip.realsize*aspect;
+                    auto pos2=ip.center+ip.xhat*x;
+                    if(!(sph.pgrid.positionToIntvec(pos)==sph.pgrid.positionToIntvec(pos2))) {
+                        outimg.put(a,b,intToRGB(255,255,255));
+                        continue;
+                    }
+                }*/
+                //SPHSim<Float,1> *sph2=static_cast<SPHSim<Float,1>*>(&sph);
+                Float rho=sph.densityAtPoint1D({pos[0],y});
                 //auto rgb=hsl2rgb(0.75*c*c+0.25*s,m*0.5f+0.25f,m);
                 outimg.put(a,b,intToRGB(rho*255,rho*255,rho*255));
             }
         }
-        //cout<<"Checked "<<(Float(nParticlesChecked)/(imw*imh))<<" particles per pixel"<<endl;
-        outimg.save(getFilename(prefix,fnamei,padcount,".bmp"));
+    } else {
+        for(int a=0;a<ip.imgw;a++){
+            for(int b=0;b<ip.imgh;b++){
+                Float x=(Float(a)/ip.imgw-0.5f)*ip.realsize;
+                Float y=(Float(b)/ip.imgh-0.5f)*ip.realsize*aspect;
+                auto pos=ip.center+ip.xhat*x+ip.yhat*y;
+
+                if(gridlines){
+                    Float x2=(Float(a+1)/ip.imgw-0.5f)*ip.realsize;
+                    Float y2=(Float(b+1)/ip.imgh-0.5f)*ip.realsize*aspect;
+                    auto pos2=ip.center+ip.xhat*x+ip.yhat*y;
+                    if(!(sph.pgrid.positionToIntvec(pos)==sph.pgrid.positionToIntvec(pos2))) {
+                        outimg.put(a,b,intToRGB(255,255,255));
+                        continue;
+                    }
+                }
+                Float rho=sph.densityAtPoint(pos);
+                //auto rgb=hsl2rgb(0.75*c*c+0.25*s,m*0.5f+0.25f,m);
+                outimg.put(a,b,intToRGB(rho*255,rho*255,rho*255));
+            }
+        }
     }
-};
+    //cout<<"Checked "<<(Float(nParticlesChecked)/(imw*imh))<<" particles per pixel"<<endl;
+    outimg.save(getFilename(prefix,fnamei,padcount,".bmp"));
+}
 
-using namespace std;
+template<typename Float,int DIM>
+static inline constexpr Float hypersphereVolume(){
+    static_assert(0<DIM && DIM<=5, "Dimension higher than 5 not implemented");
+    if constexpr(DIM==1){
+        return 2;
+    } else if constexpr(DIM==2) {
+        return M_PI;
+    } else if constexpr(DIM==3) {
+        return Float(4)*M_PI/3;
+    } else if constexpr(DIM==4) {
+        return Float(1)*M_PI*M_PI/2;
+    } else if constexpr(DIM==5) {
+        return Float(8)*M_PI*M_PI/15;
+    }
+}
 
 
-int main() {
-    ImageParams ip;
+// Simple test that image plotting works in all dimensions.
+// Example usage:
+//    initializationTest<float,1>("1dtestf",true,100);
+//    initializationTest<float,2>("2dtestf",true);
+//    initializationTest<float,3>("3dtestf",true);
+//    initializationTest<float,4>("4dtestf",true);
+//    initializationTest<float,5>("5dtestf",true);
+//    initializationTest<double,1>("1dtestd",true,100);
+//    initializationTest<double,2>("2dtestd",true);
+//    initializationTest<double,3>("3dtestd",true);
+//    initializationTest<double,4>("4dtestd",true);
+//    initializationTest<double,5>("5dtestd",true);
+//    initializationTest<long double,1>("1dtestl",true,100);
+//    initializationTest<long double,2>("2dtestl",true);
+//    initializationTest<long double,3>("3dtestl",true);
+//    initializationTest<long double,4>("4dtestl",true);
+//    initializationTest<long double,5>("5dtestl",true);
+template <typename Float, int DIM>
+void initializationTest(std::string fname, bool verbose=false, int nparticles=10000){
+    srand(1234567);
+    ImageParamsND<Float,DIM> ip;
     ip.imgw=640;
     ip.imgh=480;
     ip.realsize=2;
-    ip.cx=1.0;
-    ip.cy=1.0;
+    ip.center=VectorND<Float,DIM>(1);
+
+    Float L=2.0f;
+    //int nparticles=10000;
+
+    //The average number of overlapping circles at any given point = expectedN
+    // in two dimensions:
+    // expectedN == nparticles*(M_PI*r*r)/(L*L);
+    // in n-dimensions:
+    // expectedN == nparticles*hyersphereVolume<Float,DIM>()*std::pow(r,DIM)/std::pow(L,DIM);
+    Float expectedN=2.5;
+    // expectedRho = nparticles * mass/std::pow(L,DIM);
+    Float expectedRho=0.5;
+
+    //Invert the two above expressions to find the particle sizes
+    Float particleR=L*std::pow(Float(expectedN)/(nparticles*hypersphereVolume<Float,DIM>()),Float(1)/DIM);
+    Float particleM=expectedRho*std::pow(L,DIM)/nparticles;
+
+    if(verbose){
+        std::cout<<"Running configuration "<<fname<<" for dimension "<<DIM<<"."<<std::endl;
+        std::cout<<"Particle number:\t"<<nparticles<<std::endl;
+        std::cout<<"Particle mass:\t"<<particleM<<std::endl;
+        std::cout<<"Particle radius:\t"<<particleR<<std::endl;
+    }
+
+    VectorND<Float,DIM> domainSize(L);
+
+    Float maxH=particleR;
+    //Float dt=maxH/(6.0f*std::sqrt(2.0f*temperature));
+    //Float timeelapsed=0.0f;
+
+    ParticleList<Float,DIM> particleList;
+
+    for ( int i = 0; i < nparticles; i++ ) 
+    {
+        VectorND<Float,DIM> vnew;
+        VectorND<Float,DIM> pnew;
+        for(int j=0;j<DIM;j++){
+            pnew[j]=(rand()*L)/RAND_MAX;
+        }
+        particleList.plist.push_back(Particle<Float,DIM>{pnew,vnew,VectorND<Float,DIM>(),0,particleR,particleM});
+    }
+    SPHSim<Float,DIM> sph(particleList,domainSize,maxH);
+
+    saveSPHImage(sph,ip,fname,0,1);
+}
+
+
+
+using namespace std;
+
+int main() {
+    initializationTest<float,1>("1dtestf",true,100);
+    initializationTest<float,2>("2dtestf",true);
+    initializationTest<float,3>("3dtestf",true);
+    initializationTest<float,4>("4dtestf",true);
+    initializationTest<float,5>("5dtestf",true);
+    initializationTest<double,1>("1dtestd",true,100);
+    initializationTest<double,2>("2dtestd",true);
+    initializationTest<double,3>("3dtestd",true);
+    initializationTest<double,4>("4dtestd",true);
+    initializationTest<double,5>("5dtestd",true);
+    initializationTest<long double,1>("1dtestl",true,100);
+    initializationTest<long double,2>("2dtestl",true);
+    initializationTest<long double,3>("3dtestl",true);
+    initializationTest<long double,4>("4dtestl",true);
+    initializationTest<long double,5>("5dtestl",true);
+    /*
+    ImageParamsND<float,2> ip;
+    ip.imgw=640;
+    ip.imgh=480;
+    ip.realsize=2;
+    //ip.center=VectorND<float,2>({1.0,1.0});
+    ip.center={0.0,1.0};
 
     float L=2.0f;
     //Expected velocities are sqrt(2T/m)
@@ -360,9 +507,9 @@ int main() {
     }
     SPHSim<float,2> sph(particleList,domainSize,maxH);
 
-    sph.pgrid.rebuildGrid();
+    saveSPHImage(sph,ip,"test",0,1);
+    */
     
-    sph.saveImage(ip,"test",0,1);
 //    SPHSim<float> sph;
 //
 //    sph.domainW=1.0;
