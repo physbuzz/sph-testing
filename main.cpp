@@ -111,11 +111,21 @@ public:
     //Maximum radius of any of the particles
     Float maxH;
 
+    Float gravity;
+
     SPHSim(ParticleList<Float,DIM> &pl, VectorND<Float,DIM> domainSize, Float maxH) :
         pgrid(&pl.plist,domainSize,maxH),
-        maxH(maxH)
+        maxH(maxH), gravity(0)
     { 
+        recalculateDensities();
+    }
+
+
+    void recalculateDensities(){ 
         pgrid.rebuildGrid(); 
+        for(auto &p : *pgrid.plist){
+            p.rho=densityAtPoint(p.pos);
+        }
     }
 
     Float densityAtPoint(VectorND<Float,DIM> pos) {
@@ -131,6 +141,96 @@ public:
         }
         return rho;
     }
+
+    // Precondition: we need to have already calculated p1->rho
+    void annealPositionsBadly(Float temperature, Float stepsize){
+        for(Particle<Float,DIM> *p1 : pgrid.updateLoop()){
+            //The energy of the whole system is the sum of kinetic energies + mass[i]*intEnergyIdealGas(rho[i]).
+            //(note that the internal energy function is really the energy per unit mass)
+            auto proposed_position=p1->pos+VectorND<Float,DIM>::randomGaussian()*stepsize/std::sqrt(DIM);
+            //Float current_energy=p1->m*(gravity*p1->pos[0] + intEnergyIdealGas(p1->rho));
+            Float rho_new=0;
+            for(auto p2 : pgrid.nearbyLoop(proposed_position,maxH)){
+                if(p1==p2)
+                    continue;
+                VectorND<Float,DIM> deltapos=p2->pos - proposed_position;
+                Float d=deltapos.length();
+                if(d<p2->h){
+                    Float wab=smoothingKernelQuartic<Float,DIM>(p2->h,d);
+                    rho_new+=p2->m*wab;
+                }
+            }
+            //Account for the self-contribution to density
+            rho_new+=p1->m*smoothingKernelQuartic<Float,DIM>(p1->h,0);
+            //Float new_energy=p1->m*(gravity*proposed_position[0]+intEnergyIdealGas(rho_new));
+            //std::cout<<"Rho_new = "<<rho_new<<", rho_old = "<<p1->rho<<std::endl;
+
+            Float pAccept=std::exp(-(rho_new-p1->rho)/temperature);
+            if( pAccept>1 || Float(rand())/RAND_MAX < pAccept){
+                // Accept the move of the particle
+                // The problem is that moving the particle changes rho for all nearby particles
+                // So we have to first subtract off the density contribution from the old position,
+                // then add back the new contribution.
+                //
+                // Each particle 2 has its density updated by p2->rho = p2 -> rho +
+                //      - p1->m*smoothingKernelQuartic<Float,DIM>(p1->h,(p2->pos-p1->pos).length())
+                //      + p1->m*smoothingKernelQuartic<Float,DIM>(p1->h,(p2->pos-proposed_position).length())
+                for(auto p2 : pgrid.nearbyLoop(p1->pos,maxH)){
+                    if(p1==p2)
+                        continue;
+
+                    VectorND<Float,DIM> deltapos=p2->pos - p1->pos;
+                    Float d=deltapos.length();
+                    if(d<p1->h)
+                        p2->rho-=p1->m*smoothingKernelQuartic<Float,DIM>(p1->h,d);
+                }
+                for(auto p2 : pgrid.nearbyLoop(proposed_position,maxH)){
+                    if(p1==p2)
+                        continue;
+
+                    VectorND<Float,DIM> deltapos=p2->pos - proposed_position;
+                    Float d=deltapos.length();
+                    if(d<p1->h)
+                        p2->rho+=p1->m*smoothingKernelQuartic<Float,DIM>(p1->h,d);
+                }
+                p1->pos=proposed_position;
+                p1->rho=rho_new;
+            }
+        }
+    }
+    void annealPositions(Float temperature, Float stepsize){
+        for(Particle<Float,DIM> *p1 : pgrid.updateLoop()){
+            //The energy of the whole system is the sum of kinetic energies + mass[i]*intEnergyIdealGas(rho[i]).
+            //(note that the internal energy function is really the energy per unit mass)
+            auto proposed_position=p1->pos+VectorND<Float,DIM>::randomGaussian()*stepsize/std::sqrt(DIM);
+            Float current_energy=p1->m*(gravity*p1->pos[0] + intEnergyIdealGas(p1->rho));
+
+            Float rho_new=0;
+            for(auto p2 : pgrid.nearbyLoop(proposed_position,maxH)){
+                if(p1==p2)
+                    continue;
+                VectorND<Float,DIM> deltapos=p2->pos - proposed_position;
+                Float d=deltapos.length();
+                if(d<p2->h){
+                    Float wab=smoothingKernelQuartic<Float,DIM>(p2->h,d);
+                    rho_new+=p2->m*wab;
+                }
+            }
+            //Account for the self-contribution to density
+            rho_new+=p1->m*smoothingKernelQuartic<Float,DIM>(p1->h,0);
+            //Float new_energy=p1->m*(gravity*proposed_position[0]+intEnergyIdealGas(rho_new));
+            //Float pAccept=std::exp(-(rho_new-p1->rho)/temperature);
+            //Float pAccept=std::exp(-(new_energy-current_energy)/temperature);
+            //if( pAccept>1 || Float(rand())/RAND_MAX < pAccept){
+            //std::cout<<"Rho_new = "<<rho_new<<", rho_old = "<<p1->rho<<std::endl;
+
+            if(rho_new<p1->rho) {
+                p1->pos=proposed_position;
+                p1->rho=rho_new;
+            }
+        }
+    }
+
     //Specialized case for 1D
     Float densityAtPoint1D(VectorND<Float,2> pos) {
         static_assert(DIM==1, "Can only use densityAtPoint1D in one dimension");
@@ -371,22 +471,6 @@ static inline constexpr Float hypersphereVolume(){
 
 
 // Simple test that image plotting works in all dimensions.
-// Example usage:
-//    initializationTest<float,1>("1dtestf",true,100);
-//    initializationTest<float,2>("2dtestf",true);
-//    initializationTest<float,3>("3dtestf",true);
-//    initializationTest<float,4>("4dtestf",true);
-//    initializationTest<float,5>("5dtestf",true);
-//    initializationTest<double,1>("1dtestd",true,100);
-//    initializationTest<double,2>("2dtestd",true);
-//    initializationTest<double,3>("3dtestd",true);
-//    initializationTest<double,4>("4dtestd",true);
-//    initializationTest<double,5>("5dtestd",true);
-//    initializationTest<long double,1>("1dtestl",true,100);
-//    initializationTest<long double,2>("2dtestl",true);
-//    initializationTest<long double,3>("3dtestl",true);
-//    initializationTest<long double,4>("4dtestl",true);
-//    initializationTest<long double,5>("5dtestl",true);
 template <typename Float, int DIM>
 void initializationTest(std::string fname, bool verbose=false, int nparticles=10000){
     srand(1234567);
@@ -441,11 +525,7 @@ void initializationTest(std::string fname, bool verbose=false, int nparticles=10
     saveSPHImage(sph,ip,fname,0,1);
 }
 
-
-
-using namespace std;
-
-int main() {
+void configuration_drawingTest(){ 
     initializationTest<float,1>("1dtestf",true,100);
     initializationTest<float,2>("2dtestf",true);
     initializationTest<float,3>("3dtestf",true);
@@ -461,6 +541,75 @@ int main() {
     initializationTest<long double,3>("3dtestl",true);
     initializationTest<long double,4>("4dtestl",true);
     initializationTest<long double,5>("5dtestl",true);
+}
+
+template <typename Float, int DIM>
+void annealingTest(std::string fname, bool verbose=false, int nparticles=10000, int nannealingsteps=100){
+    srand(1234567);
+    ImageParamsND<Float,DIM> ip;
+    ip.imgw=640;
+    ip.imgh=480;
+    ip.realsize=2;
+    ip.center=VectorND<Float,DIM>(1);
+
+    Float L=2.0f;
+    //int nparticles=10000;
+
+    //The average number of overlapping circles at any given point = expectedN
+    // in two dimensions:
+    // expectedN == nparticles*(M_PI*r*r)/(L*L);
+    // in n-dimensions:
+    // expectedN == nparticles*hyersphereVolume<Float,DIM>()*std::pow(r,DIM)/std::pow(L,DIM);
+    Float expectedN=10;
+    // expectedRho = nparticles * mass/std::pow(L,DIM);
+    Float expectedRho=0.5;
+
+    //Invert the two above expressions to find the particle sizes
+    Float particleR=L*std::pow(Float(expectedN)/(nparticles*hypersphereVolume<Float,DIM>()),Float(1)/DIM);
+    Float particleM=expectedRho*std::pow(L,DIM)/nparticles;
+
+    if(verbose){
+        std::cout<<"Running configuration "<<fname<<" for dimension "<<DIM<<"."<<std::endl;
+        std::cout<<"Particle number:\t"<<nparticles<<std::endl;
+        std::cout<<"Particle mass:\t"<<particleM<<std::endl;
+        std::cout<<"Particle radius:\t"<<particleR<<std::endl;
+    }
+
+    VectorND<Float,DIM> domainSize(L);
+
+    Float maxH=particleR;
+    //Float dt=maxH/(6.0f*std::sqrt(2.0f*temperature));
+    //Float timeelapsed=0.0f;
+
+    ParticleList<Float,DIM> particleList;
+
+    for ( int i = 0; i < nparticles; i++ ) 
+    {
+        VectorND<Float,DIM> vnew;
+        VectorND<Float,DIM> pnew;
+        for(int j=0;j<DIM;j++){
+            pnew[j]=(rand()*L)/RAND_MAX;
+        }
+        particleList.plist.push_back(Particle<Float,DIM>{pnew,vnew,VectorND<Float,DIM>(),0,particleR,particleM});
+    }
+    SPHSim<Float,DIM> sph(particleList,domainSize,maxH);
+
+    Float temperature=0.00001;
+    for(int i=0;i<nannealingsteps;i++){
+        sph.annealPositions(temperature,particleR/80);
+        temperature *= (1-Float(1)/nannealingsteps);
+        if(i%10==0){
+            saveSPHImage(sph,ip,fname,i/10,3);
+        }
+    }
+
+}
+
+using namespace std;
+
+int main() {
+    annealingTest<float,2>("out/annealing", true,100000,3000);
+
     /*
     ImageParamsND<float,2> ip;
     ip.imgw=640;

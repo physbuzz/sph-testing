@@ -192,6 +192,25 @@ public:
                 x[i]=mmax[i];
         }
     }
+    static VectorND randomGaussian() {
+        VectorND result;
+        // Handle pairs of dimensions using Box-Muller
+        for(int i = 0; i < DIM; i += 2) {
+            // Get two uniform random numbers in (0,1)
+            Float u1 = (Float)(rand()+1) / ((Float)RAND_MAX+1);
+            Float u2 = (Float)(rand()) / ((Float)RAND_MAX);
+
+            // Box-Muller transform
+            Float r = std::sqrt(-2 * std::log(u1));
+            Float theta = 2 * M_PI * u2;
+
+            result.x[i] = r * std::cos(theta);
+            if(i+1 < DIM) {
+                result.x[i+1] = r * std::sin(theta);
+            }
+        }
+        return result;
+    }
 };
 
 template<typename Float,int DIM>
